@@ -1,0 +1,9 @@
+global _start        ; Declare the entry point
+[bits 32]           ; Ensure we're in 32-bit protected mode
+
+_start:
+    [extern main]      ; Declare the external C function (kernel entry point)
+
+    call main        ; Call the C kernel's main function
+
+    jmp $            ; Infinite loop to stop execution once the main function finishes
