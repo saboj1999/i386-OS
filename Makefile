@@ -1,5 +1,5 @@
 # Define file sets
-C_FILES := kernel.c console/console.c util/math.c
+C_FILES := kernel.c console/console.c console/cmds.c util/math.c util/string.c util/random.c util/time.c device/portmap/portmap.c device/keyboard/keyboard.c device/screen/graphics.c games/snake.c games/space_invader.c
 ASM_FILES := boot.asm kernel-entry.elf
 O_FILES := $(C_FILES:.c=.o)
 
@@ -20,7 +20,7 @@ boot.bin: boot.asm
 
 # Link kernel-entry.o and object files to create kernel.bin
 kernel.bin: kernel-entry.o $(O_FILES)
-	ld -m elf_i386 -s -Ttext 0x1000 $^ --oformat binary -o $@
+	ld -m elf_i386 -s -Ttext 0x8000 $^ --oformat binary -o $@
 
 # Assemble kernel-entry.elf to kernel-entry.o
 kernel-entry.o: kernel-entry.elf

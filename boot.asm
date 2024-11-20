@@ -7,8 +7,8 @@ org 0x7C00
 ; Move bootdrive number from DL to variable
 mov [BOOT_DRIVE], DL
 
-; Setup stack and base pointers
-mov bp, 0x9000
+; Setup stack and base pointers // use scratch space beyond bootloader
+mov bp, 0x7E00
 mov sp, bp
 
 ; Call disk_read
@@ -115,7 +115,7 @@ print_letter_in_32_bit_mode:
 
 ; ============================================================ ;
 ; Data
-KERNEL_ADDRESS equ 0x1000
+KERNEL_ADDRESS equ 0x8000
 BOOT_DRIVE db 0
 DISK_UNKNOWN_READ_ERROR_MSG db 'Unknown error while reading disk.', 0
 DISK_SECTORS_READ_ERROR_MSG db 'Size of data requested != Size of data read.', 0
@@ -127,7 +127,7 @@ CODE_SEGMENT_INDEX equ 0x08 ; hard code for now
 DATA_SEGMENT_INDEX equ 0x10 ; hard code for now
 
 ; TODO: calculate size of kernal file and store in variable
-num_sectors db 0x11
+num_sectors db 0x59
 
 ; Pad the remaining bootloader with 0s to produce 510 total bytes
 times 510 - ($-$$) db 0

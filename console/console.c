@@ -1,4 +1,5 @@
 #include "../include/math.h"
+#include "../include/portmap.h"
 #include "../include/console.h"
 
 #define VGA ((char*) 0xb8000)                               // Define VGA buffer at 0xb8000
@@ -13,7 +14,150 @@ static Color foreground = LIGHT_GRAY;     // Foreground (text) 0x0 - 0xf Default
 static Color background = BLACK;          // Background 0x0 - 0xf Default Black
 static int cursor_x = default_cursor_x;   // CursorX 0-79 default 1
 static int cursor_y = default_cursor_y;   // CursorY 0-24 default 24
+static uint8_t cursor_start = 0;          // Cursor shape - Top 0-15
+static uint8_t cursor_end = 15;           // Cursor shape - Bottom 0-15
 
+/**
+ * Purpose: Return the character at the current cursor location.
+ * << GetCharAtCursor >>
+ * @params: none
+ * @returns: 
+ *      char -> char at current VGA cursor position
+ */
+char GetCharAtCursor()
+{
+    return VGA[CURSOR_POS];
+}
+/**
+ * Purpose: Return the foreground byte at the current cursor location.
+ * << GetForeGroundAtCursor >>
+ * @params: none
+ * @returns: 
+ *      char -> bits 0-3 of attribute byte at VGA[CURSOR_POS+1]
+ */
+char GetForeGroundAtCursor()
+{
+    // Read the current attribute byte
+    char attr_byte = VGA[CURSOR_POS+1];
+    // Extract the existing foreground color (bits 0-3)
+    char existing_foreground = attr_byte & 0x0F;
+    return existing_foreground;
+}
+/**
+ * Purpose: Return the background byte at the current cursor location.
+ * << GetBackGroundAtCursor >>
+ * @params: none
+ * @returns: 
+ *      char -> bits 4-6 of attribute byte at VGA[CURSOR_POS+1]
+ */
+char GetBackGroundAtCursor()
+{
+    // Read the current attribute byte
+    char attr_byte = VGA[CURSOR_POS+1];
+    // Extract the existing background color (bits 4-6)
+    char existing_background = (attr_byte >> 4) & 0x0F;
+    return existing_background;
+}
+/**
+ * Purpose: Utilize outb to write the current VGA cursor start and end line
+ * - bytes. Allows us to modify the shape of the blinking cursor.
+ * << CustomizeVGACursor >>
+ * @params: none
+ * @returns: void
+ */
+void CustomizeVGACursor()
+{
+    // https://wiki.osdev.org/Text_Mode_Cursor
+    // (0,15) gives us full coverage of the current location as opposed to the underline it is by default (14, 15)
+    outb(0x3D4, 0x0A);
+	outb(0x3D5, (inb(0x3D5) & 0xC0) | cursor_start);
+
+	outb(0x3D4, 0x0B);
+	outb(0x3D5, (inb(0x3D5) & 0xE0) | cursor_end);
+}
+/**
+ * Purpose: Utilize outb to write the current VGA cursor start set to a
+ * - value matching the cursor end to effectively hide the cursor.
+ * << HideCursor >>
+ * @params: none
+ * @returns: void
+ */
+void HideCursor()
+{
+    outb(0x3D4, 0x0A);
+	outb(0x3D5, (inb(0x3D5) & 0xC0) | 15); // set to 15 to match cursor_end and effectively hide the cursor
+}
+/**
+ * Purpose: Utilize outb to write the current VGA cursor start and set to a
+ * - its default value of 0 to make the cursor visible again.
+ * << ShowCursor >>
+ * @params: none
+ * @returns: void
+ */
+void ShowCursor()
+{
+    outb(0x3D4, 0x0A);
+	outb(0x3D5, (inb(0x3D5) & 0xC0) | cursor_start); // return cursor_start to default value
+}
+/**
+ * Purpose: Get the current cursor x position.
+ * << GetCursorX >>
+ * @params: none
+ * @returns:
+ *      int cursor_x -> current cursor x position
+ */
+int GetCursorX()
+{
+    return cursor_x;
+}
+/**
+ * Purpose: Get the current cursor y position.
+ * << GetCursorY >>
+ * @params: none
+ * @returns:
+ *      int cursor_y -> current cursor y position
+ */
+int GetCursorY()
+{
+    return cursor_y;
+}
+/**
+ * Purpose: Utilize outb to write the current VGA cursor position
+ * - into the correct port.
+ * << UpdateVGACursorPosition >>
+ * @params: none
+ * @returns: void
+ */
+void UpdateVGACursorPosition() 
+{
+    uint16_t cursor_position = CURSOR_POS / 2; // VGA buffer 0-3999 we need 0-1999
+
+    outb(0x3D4, 0x0F); // 0x0F is the index for the cursor low register
+    outb(0x3D5, (uint8_t)(cursor_position)); // Write the lower 8 bits of the position to the cursor low register
+
+    outb(0x3D4, 0x0E); // 0x0E is the index for the cursor high register
+    outb(0x3D5, (uint8_t)(cursor_position >> 8)); // Shift the position value right 8 bits and then write.
+}
+/**
+ * Purpose: Obtain the current VGA cursor position via the inb function
+ * - and outb functions. 
+ * << GetVGACursorPosition >>
+ * @params: none
+ * @returns:
+ *      uint16_t cursor_position -> current position of the VGA cursor (0-1999)
+ */
+uint16_t GetVGACursorPosition()
+{
+    uint16_t cursor_position = 0;
+
+    outb(0x3D4, 0x0F);
+    cursor_position |= inb(0x3D5);
+
+    outb(0x3D4, 0x0E);
+    cursor_position |= ((uint16_t)inb(0x3D5)) << 8;
+
+    return cursor_position;
+}
 /**
  * Purpose: To set the default position of the cursor.
  * << SetCursorDefaultPosition >>
@@ -24,6 +168,7 @@ void SetCursorDefaultPosition()
 {
     cursor_x = default_cursor_x;
     cursor_y = default_cursor_y;
+    UpdateVGACursorPosition();
 }
 /**
  * Purpose: To set the position of the cursor.
@@ -37,6 +182,7 @@ void SetCursorPosition(int x, int y)
 {
     cursor_x = x;
     cursor_y = y;
+    UpdateVGACursorPosition();
 }
 /**
  * Purpose: To update the background portion of all positions' color attribute
@@ -178,6 +324,28 @@ void SetFullBackGroundColor(Color color) // excludes highlights set with PrintSt
     UpdateBackgroundColorAttribute(prev_bg);
 }
 /**
+ * Purpose: Get current foreground color.
+ * << GetForeGround >>
+ * @params: none
+ * @returns: 
+ *      char -> foreground
+ */
+char GetForeGround()
+{
+    return foreground;
+}
+/**
+ * Purpose: Get current background color.
+ * << GetBackGround >>
+ * @params: none
+ * @returns: 
+ *      char -> backgorund
+ */
+char GetBackGround()
+{
+    return background;
+}
+/**
  * Purpose: Set all background attributes not matching the current background
  * - color to the current background color. Basically gets rid of highlights.
  * << RemoveHighlights >>
@@ -258,6 +426,7 @@ void ClearScreen()
         VGA[i*2+1] = VGA_CURRENT_COLOR;
     }
     SetCursorDefaultPosition();
+    CustomizeVGACursor(); // set cursor to full block
 }
 /**
  * Purpose: To reset text and background color to default values and then
@@ -279,7 +448,7 @@ void ResetScreen()
  * @params: none
  * @returns: void
  */
-void ScrollScreen() 
+void ScrollScreenUp() 
 {
     for (int y = 1; y < 25; y++) {
         for (int x = 0; x < 80; x++) {
@@ -292,6 +461,53 @@ void ScrollScreen()
         VGA[(24 * 80 * 2) + x * 2] = 0x20;  // ASCII space
         VGA[(24 * 80 * 2) + x * 2 + 1] = VGA_CURRENT_COLOR;  // Attribute
     }
+}
+/**
+ * Purpose: To move all characters printed to the screen down by 1 in the
+ * - screen y. Move one row at a time to the memory of the row below from
+ * - bottom row to top row.
+ * << ScrollScreenDown >>
+ * @params: none 
+ * @returns: void
+ */
+void ScrollScreenDown() 
+{
+    // FIXME: consider uses the pages feature in VGA? instead of buffer...
+    // Move each line down by one, starting from the bottom
+    for (int y = 23; y >= 0; y--) {
+        for (int x = 0; x < 80; x++) {
+            VGA[(y + 1) * 80 * 2 + x * 2] = VGA[y * 80 * 2 + x * 2];
+            VGA[(y + 1) * 80 * 2 + x * 2 + 1] = VGA[y * 80 * 2 + x * 2 + 1];
+        }
+    }
+    // // Clear the first line
+    // for (int x = 0; x < 80; x++) {
+    //     VGA[x * 2] = 0x20;  // ASCII space
+    //     VGA[x * 2 + 1] = VGA_CURRENT_COLOR;  // Attribute
+    // }
+}
+/**
+ * Purpose: To move the cursor to the space directly after the last
+ * - character on the current row.
+ * << MoveCursorToLastCharOnLine >>
+ * @params: none 
+ * @returns: void
+ */
+void MoveCursorToLastCharOnLine()
+{
+    int line_start = CURSOR_POS - (CURSOR_POS % 160);
+    for(int i = 79; i >= default_cursor_x; i--)
+    {
+        if(VGA[i*2 + line_start] != ' ')
+        {
+            cursor_x = i + 1;
+            if(cursor_x >= 80)
+                cursor_x = 79;
+            return;
+        }
+    }
+    // If the line is empty, set cursor_x to default
+    cursor_x = default_cursor_x;
 }
 /**
  * Purpose: To increment to position of the cursor checking for things
@@ -308,14 +524,24 @@ void MoveCursor(int x, int y)
 {
     cursor_x += x;
     cursor_y += y;
-    if (cursor_x >= 80) { 
+    if (cursor_x >= 79) { // check 79 to keep last space on each line blank
         cursor_x = default_cursor_x;
         cursor_y++;
     }
+    else if (cursor_x < default_cursor_x) { 
+        cursor_y--;
+        MoveCursorToLastCharOnLine();
+    }
     if (cursor_y >= 25) {
-        ScrollScreen();
+        ScrollScreenUp();
         cursor_y = 24;  // Keep cursor at the bottom
     }
+    else if (cursor_y < 0) {
+        ScrollScreenDown();
+        cursor_y = 0;
+        MoveCursorToLastCharOnLine();
+    }
+    UpdateVGACursorPosition();
 }
 /**
  * Purpose: To move a given char into the memory address of the current 
@@ -332,6 +558,58 @@ void PrintCharAtCursor(char c)
     VGA[CURSOR_POS + 1] = VGA_CURRENT_COLOR;  // Attribute byte
 }
 /**
+ * Purpose: To move a given char into the memory address of the current 
+ * - cursor position and set the color attribute at the next address
+ * - to the attribute created with VGA_COLOR and the given fg & bg.
+ * << PrintCharFullColorAtCursor >>
+ * @params: 
+ *      char c -> an ascii character
+ *      Color fg -> vga_color 0-15
+ *      Color bg -> vga_color 0-15
+ * @returns: void
+ */
+void PrintCharFullColorAtCursor(char c, Color fg, Color bg)
+{
+    VGA[CURSOR_POS] = c;
+    VGA[CURSOR_POS + 1] = VGA_COLOR(fg, bg);  // Attribute byte
+}
+/**
+ * Purpose: To delete the most recently printed char at the previous cursor
+ * - position. Move cursor has been updated to ensure the page will scroll
+ * - appropriately if deleting the beyond the first index in the VGA buffer.
+ * << Delete >>
+ * @params: none
+ * @returns: void
+ */
+void Delete()
+{
+    MoveCursor(-1, 0);
+    PrintCharAtCursor(' ');
+}
+/**
+ * Purpose: To move the cursor position to the next position in the VGA
+ * - that is divisibly by a specified value. Default -> 8
+ * << Tab >>
+ * @params: none
+ * @returns: void
+ */
+void Tab()
+{
+    MoveCursor(cursor_x % tab == 0 ? tab : tab - (cursor_x % tab), 0);
+}
+/**
+ * Purpose: To move the cursor to the the next line and returning cursor_x
+ * - to its default position.
+ * << NewLine >>
+ * @params: none
+ * @returns: void
+ */
+void NewLine()
+{
+    cursor_x = default_cursor_x;
+    MoveCursor(0, 1);
+}
+/**
  * Purpose: To move a given char into the memory address of the current
  * - cursor position and increment the position of the cursor. This function
  * - also checks for special characters like '\n' and '\t', handling 
@@ -343,17 +621,17 @@ void PrintCharAtCursor(char c)
  */
 void PrintChar(char c) 
 {
-    if (c == '\n') {
-        cursor_x = default_cursor_x;  // Move to the beginning of the next line
-        MoveCursor(0, 1);
-    } 
-    else if (c == '\t')
+    switch(c)
     {
-        MoveCursor(cursor_x % tab == 0 ? tab : tab - (cursor_x % tab), 0);
-    }
-    else {
-        PrintCharAtCursor(c);
-        MoveCursor(1, 0);
+        case '\n': NewLine(); break;
+        case '\t': Tab(); break;
+        case '\b': Delete(); break;
+        default:
+        {
+            PrintCharAtCursor(c);
+            MoveCursor(1, 0);
+            break;
+        }
     }
 }
 /**
@@ -440,6 +718,7 @@ void PrintIntSingleDigit(int n)
  */
 void PrintInt(int n)
 {
+    HideCursor();
     int temp, l;
     l = GetIntLength(n);
     if(n < 0) { PrintChar('-'); n *= -1;}
@@ -449,6 +728,7 @@ void PrintInt(int n)
         PrintIntSingleDigit(temp % 10);
         l--;
     }
+    ShowCursor();
 }
 /**
  * Purpose: To print an integer at the current cursor location with a given color.
@@ -519,6 +799,7 @@ void PrintIntFullColor(int n, Color fg, Color bg)
  */
 void PrintDouble(double d)
 {
+    HideCursor();
     int f, l, dec;
     double r;
     if(d < 0.0) { PrintChar('-'); d *= -1; }
@@ -530,6 +811,7 @@ void PrintDouble(double d)
     PrintInt(f);
     PrintChar('.');
     PrintInt((int)dec);
+    ShowCursor();
 }
 /**
  * Purpose: To print a double at the current cursor location with a given color.
@@ -597,11 +879,13 @@ void PrintDoubleFullColor(double d, Color fg, Color bg)
  */
 void PrintString(const char* str)
 {
+    HideCursor();
     int i = 0;
     while (str[i] != '\0') {
         PrintChar(str[i]);
         i++;
     }
+    ShowCursor();
 }
 /**
  * Purpose: To print a string to the screen at the current cursor position
@@ -764,7 +1048,7 @@ void Printf(const char* format, ...)
             if (*p == '\0') 
             {
                 // Error: Incomplete format specifier at end of string
-                PrintString("Error: Incomplete format specifier\n");
+                PrintStringColor("Error: Incomplete format specifier\n", RED);
                 return;
             } 
             else 
@@ -804,8 +1088,8 @@ void Printf(const char* format, ...)
                     default: 
                     {
                         // Error: Unknown format specifier
-                        PrintString("Error: Unknown format specifier ");
-                        PrintChar(specifier);
+                        PrintStringColor("Error: Unknown format specifier ", RED);
+                        PrintCharFullColor(specifier, RED, YELLOW);
                         PrintChar('\n');
                         return;
                     }

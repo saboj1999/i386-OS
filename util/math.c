@@ -109,12 +109,12 @@ int Ceil(double d)
  */
 int Floor(double d)
 {
-    int n = (int)d;
-    int f;
-    if (Dabs(d - (double)n) < EPSILON) f = n;
-    else if (d < 0) f = n - 1;
-    else f = n;
-    return f;
+  int n = (int)d;
+  int f;
+  if (Dabs(d - (double)n) < EPSILON) f = n;
+  else if (d < 0) f = n - 1;
+  else f = n;
+  return f;
 }
 /**
  * Purpose: To determine the length of a given integer. Does this by 
